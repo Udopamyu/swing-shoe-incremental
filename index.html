@@ -1,0 +1,956 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#081427">
+<meta name="description" content="二重振り子ブランコ靴飛ばし INCREMENTAL。靴を飛ばしてポイントを集め、8種類のアップグレードで最強のブランコを育てよう。">
+<title>二重振り子ブランコ靴飛ばし — INCREMENTAL v2.5</title>
+<style>
+:root{color-scheme:dark;--bg:#081427;--cyan:#71e7ee;--orange:#ffab71;--text:#f2f8ff}
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif}
+body{background:var(--bg);overscroll-behavior:none}
+.shell{position:fixed;inset:0;width:100%;height:100%;height:100dvh;margin:0;padding:0;display:block;overflow:hidden}
+.stage{position:absolute;inset:0;width:100%;height:100%;overflow:hidden;background:#132941;border:0;border-radius:0;box-shadow:none}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+.controls{position:absolute;z-index:3;bottom:calc(16px + env(safe-area-inset-bottom,0px));left:50%;transform:translateX(-50%);display:grid;grid-template-columns:1fr 1fr;gap:14px;width:min(620px,calc(100% - 28px));transition:opacity .2s}
+.controls.hidden{visibility:hidden;pointer-events:none}
+button,a.share{font:inherit;cursor:pointer;-webkit-tap-highlight-color:transparent;touch-action:manipulation;user-select:none}
+.action{height:76px;border:0;border-radius:18px;font-size:clamp(20px,3.7vw,28px);font-weight:900;letter-spacing:.03em;display:flex;align-items:center;justify-content:center;gap:12px;box-shadow:0 7px 0 #0004,0 12px 22px #0004;transition:transform .12s,filter .14s,opacity .14s}
+.action:active:not(:disabled){transform:translateY(4px);box-shadow:0 3px 0 #0004}
+.pump{background:linear-gradient(150deg,#91f3f4,#39cede);color:#062a36}
+.shoot{background:linear-gradient(150deg,#ffca96,#ff995b);color:#4b2214}
+.action:disabled{opacity:.28;filter:grayscale(.7);cursor:default;box-shadow:0 4px 14px #0003}
+.count{font-size:13px;font-weight:850;opacity:.68;min-width:40px;white-space:nowrap}
+.result-overlay{position:absolute;z-index:4;inset:0;display:flex;align-items:center;justify-content:center;padding:15px;background:#0613246b;backdrop-filter:blur(1.5px);opacity:0;visibility:hidden;pointer-events:none;transition:opacity .25s ease,visibility .25s ease}
+.result-overlay.show{opacity:1;visibility:visible;pointer-events:auto}
+.result-card{width:min(420px,94%);padding:24px 22px 22px;border:1px solid #acd1ec57;border-radius:22px;background:#0a1b31e8;box-shadow:0 14px 60px #061121aa;text-align:center;display:flex;flex-direction:column;align-items:center;gap:15px}
+.result-distance{font-size:clamp(36px,7vw,62px);font-weight:950;letter-spacing:-.045em;color:#ffc08a;line-height:1.1;font-variant-numeric:tabular-nums;white-space:nowrap}
+.record{color:#89fff1;font-size:13px;font-weight:900;letter-spacing:.18em}
+.record[hidden]{display:none}
+.result-actions{display:grid;grid-template-columns:1fr 1fr;gap:11px;width:100%}
+.result-actions a,.result-actions button{display:flex;align-items:center;justify-content:center;min-height:56px;border:0;border-radius:12px;text-decoration:none;font-size:15px;font-weight:850;white-space:nowrap;transition:transform .1s,filter .14s}
+.result-actions a:active,.result-actions button:active{transform:scale(.975)}
+.share{background:#edf7ff;color:#06111e}
+.again{background:#ffb27c;color:#3b1e12}
+.result-actions a:hover,.result-actions button:hover{filter:brightness(1.08)}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
+@media(max-width:700px){
+ .controls{gap:10px;width:calc(100% - 26px);bottom:calc(14px + env(safe-area-inset-bottom,0px))}
+ .action{height:70px;border-radius:14px;font-size:21px;gap:8px}
+ .count{font-size:12px}
+ .result-card{padding:15px 13px;gap:9px;border-radius:15px}
+ .result-distance{font-size:clamp(32px,9vw,46px)}
+ .result-actions{gap:8px}
+ .result-actions a,.result-actions button{min-height:45px;font-size:13px}
+}
+@media(max-height:530px) and (orientation:landscape){
+ .controls{width:min(520px,calc(100% - 28px));bottom:calc(7px + env(safe-area-inset-bottom,0px))}
+ .action{height:54px}
+ .result-card{padding:12px;gap:8px}
+}
+
+/* Incremental edition: full-size canvas, shop overlays only between attempts */
+:root{--cyan:#65e2e6;--gold:#ffcc78;--panel:#0b1d32f5}
+.hud{position:absolute;z-index:3;top:calc(18px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);display:flex;justify-content:center;gap:10px;pointer-events:none;max-width:calc(100vw - 22px);width:max-content}
+.hud-item{display:flex;align-items:center;gap:9px;padding:9px 14px;border:1px solid #b7d4ef34;border-radius:12px;background:#09192be6;box-shadow:0 7px 28px #0003;white-space:nowrap;font-weight:800;font-size:14px;font-variant-numeric:tabular-nums}
+.hud-item .h-label{font-size:11px;font-weight:700;color:#93b6c8}
+.hud-item strong{color:#ffd087;font-size:19px}
+.hud.is-hidden{display:none}
+.controls{bottom:calc(18px + env(safe-area-inset-bottom,0px))}
+.result-card{width:min(440px,96%);padding:26px 23px 24px;gap:13px}
+.result-tag{font-weight:900;letter-spacing:.2em;color:#74e5e2;font-size:12px}
+.result-reward{width:100%;padding:14px;background:#142d40;border:1px solid #426070;border-radius:13px;display:flex;align-items:center;justify-content:space-between;gap:9px;text-align:left}
+.result-reward .mini{font-size:12px;color:#9cc2d5}
+.result-reward strong{font-size:28px;line-height:1;color:#ffd184;font-variant-numeric:tabular-nums}
+.result-reward .sub{font-size:11px;color:#9ac0c9}
+.result-actions{grid-template-columns:1fr 1fr;gap:10px}
+.result-actions .visit-shop{background:linear-gradient(135deg,#83eddf,#48bad6);color:#062f3b}
+.result-actions .again{background:#ffb27c;color:#3b1e12}
+.result-actions .share{grid-column:1/-1;min-height:43px;background:#e8f5ff;color:#102237}
+.shop-overlay{position:absolute;inset:0;z-index:10;display:none;align-items:center;justify-content:center;padding:clamp(10px,2vw,28px);background:#04101ed9;backdrop-filter:blur(9px)}
+.shop-overlay.show{display:flex}
+.shop-panel{width:min(1110px,100%);max-height:100%;max-height:calc(100dvh - 24px);display:flex;flex-direction:column;overflow:hidden;border-radius:22px;border:1px solid #78aec955;background:linear-gradient(155deg,#0d253c,#081827 72%);box-shadow:0 30px 90px #0009}
+.shop-header{padding:23px 26px 17px;display:flex;justify-content:space-between;align-items:start;gap:16px;border-bottom:1px solid #668b9e31}
+.shop-kicker{margin:0 0 5px;color:#6ee4e9;font-size:11px;font-weight:900;letter-spacing:.24em}
+.shop-header h1{font-size:clamp(18px,2.25vw,28px);line-height:1.3;font-weight:950;letter-spacing:-.02em;margin:0}
+.shop-description{margin:5px 0 0;color:#9ab5cb;font-size:12px}
+.shop-meta{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+.meta-pill{border:1px solid #426680;background:#142d41;padding:8px 12px;border-radius:12px;text-align:center;min-width:97px}
+.meta-pill small{display:block;font-size:10px;letter-spacing:.05em;color:#9fbec9;font-weight:800;margin-bottom:3px}
+.meta-pill strong{display:block;font-size:20px;color:#ffd28a;font-variant-numeric:tabular-nums;white-space:nowrap}
+.shop-scroll{overflow-y:auto;overscroll-behavior:contain;padding:17px 24px 26px;scrollbar-color:#42647d #0c2236}
+.shop-section-label{font-size:12px;color:#92adc4;letter-spacing:.12em;font-weight:900;margin:0 0 12px}
+.upgrade-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:11px}
+.upgrade-card{display:flex;flex-direction:column;gap:6px;border-radius:15px;background:#153148a8;border:1px solid #6b95ab30;padding:14px 15px;transition:border-color .18s,background .18s}
+.upgrade-card.affordable{border-color:#5bd7be80;background:#163e4ca6}
+.upgrade-top{display:flex;align-items:center;gap:9px;justify-content:space-between}
+.upgrade-name{display:flex;align-items:center;gap:9px;font-size:15px;font-weight:900}
+.upgrade-glyph{display:flex;width:33px;height:33px;align-items:center;justify-content:center;border-radius:10px;background:#1c4a62;color:#7ce5f1;font-size:16px;font-weight:950;flex:0 0 auto}
+.upgrade-level{font-size:11px;font-weight:850;padding:5px 8px;border-radius:20px;background:#284357;color:#c4dbe6;white-space:nowrap}
+.upgrade-description{font-size:12px;color:#9fbbcd;line-height:1.4;min-height:17px}
+.upgrade-bottom{display:flex;align-items:center;justify-content:space-between;gap:9px;margin-top:auto;padding-top:5px}
+.upgrade-stats{font-size:12px;line-height:1.35;color:#dceef4;font-variant-numeric:tabular-nums}
+.upgrade-stats span{color:#7ddfdb;font-weight:850}
+.buy-btn{border:1px solid #506e81;background:#233c50;color:#a8c1d1;padding:11px 12px;border-radius:10px;font-size:12px;font-weight:900;white-space:nowrap;min-width:98px}
+.buy-btn.can-buy{border-color:#57d8bd;background:#64e7d3;color:#063443;box-shadow:0 2px 13px #34c8ae18}
+.buy-btn:disabled{opacity:.65;cursor:not-allowed}
+.buy-btn:not(:disabled):active{transform:scale(.97)}
+.shop-footer{padding:14px 25px 19px;display:flex;align-items:center;justify-content:space-between;gap:14px;border-top:1px solid #668b9e36;background:#0b1e2f}
+.shop-info{font-size:12px;color:#8caec0;line-height:1.45;max-width:50ch}
+.shop-buttons{display:flex;align-items:center;gap:12px;flex-shrink:0}
+.start-btn{border:0;border-radius:14px;background:linear-gradient(120deg,#ffc888,#ff995d);color:#4a2517;font-size:18px;font-weight:950;padding:14px 30px;min-width:190px;box-shadow:0 5px 0 #88491e,0 10px 19px #0004}
+.start-btn:active{transform:translateY(3px);box-shadow:0 2px 0 #88491e}
+.erase-btn{border:0;background:transparent;color:#789caf;padding:6px;font-size:11px;text-decoration:underline}
+.shop-toast{font-size:12px;color:#69efbe;min-height:15px;align-self:center}
+@media(max-width:700px){
+ .hud{top:calc(9px + env(safe-area-inset-top,0px));gap:6px}
+ .hud-item{font-size:12px;padding:6px 9px;gap:5px}
+ .hud-item .h-label{font-size:10px}.hud-item strong{font-size:15px}
+ .shop-overlay{padding:0;align-items:stretch}
+ .shop-panel{border-radius:0;max-height:100dvh;height:100dvh;border:0}
+ .shop-header{padding:calc(13px + env(safe-area-inset-top,0px)) 16px 12px;flex-direction:column;gap:10px}
+ .shop-header h1{font-size:18px}.shop-description{font-size:11px}
+ .shop-meta{justify-content:flex-start;width:100%}.meta-pill{flex:1;min-width:0;padding:5px 9px}
+ .meta-pill strong{font-size:17px}
+ .shop-scroll{padding:12px 12px 20px}
+ .upgrade-grid{grid-template-columns:1fr;gap:9px}
+ .upgrade-card{padding:11px 12px;gap:4px}
+ .upgrade-name{font-size:14px}.upgrade-description{font-size:11px}
+ .shop-footer{padding:11px 12px calc(13px + env(safe-area-inset-bottom,0px));gap:8px;flex-wrap:wrap}
+ .shop-info{font-size:10px;max-width:100%;width:100%}
+ .shop-buttons{width:100%;justify-content:space-between}
+ .start-btn{font-size:16px;min-width:0;padding:12px 22px;flex:1}
+ .erase-btn{flex:0 0 auto}
+ .result-card{padding:18px 14px 16px}.result-distance{font-size:clamp(32px,9vw,51px)}
+}
+@media(max-height:560px) and (min-width:701px){
+ .shop-header{padding:10px 18px}.shop-scroll{padding:10px 18px}.shop-footer{padding:8px 18px}
+ .upgrade-card{padding:9px 11px}.upgrade-grid{gap:8px}
+}
+
+
+/* V2.5: restrained arcade HUD and compact eight-item upgrade grid */
+.hud{left:16px;top:calc(13px + env(safe-area-inset-top,0px));transform:none;}
+.hud-item{padding:7px 11px;gap:5px;border-radius:12px;background:#081b2bc0;border-color:#9cb9c33b}
+.hud-item strong{font-size:18px;color:#ffcd7e}.hud-item .h-label{font-size:12px;color:#ffcd7e}
+input[type=range]{accent-color:#70e7d9;cursor:pointer;touch-action:pan-x}
+.result-card{width:min(390px,94%);gap:15px;padding:27px 20px}
+.result-reward{display:flex;align-items:center;justify-content:center;min-height:58px;padding:8px;background:#173248;border:0}
+.result-reward strong{color:#ffcf84;font-size:26px}
+.shop-overlay{background:#061529d9}
+.shop-panel{width:min(850px,100%);border-radius:18px}
+.shop-header{padding:15px 19px;align-items:center;gap:10px}
+.shop-header h1{font-size:23px;white-space:nowrap}
+.shop-meta{display:flex;align-items:baseline;gap:15px}
+.shop-meta strong{font-weight:950;color:#ffcf88;font-size:22px;font-variant-numeric:tabular-nums}
+.shop-meta span{font-size:11px;color:#a1b8c7;white-space:nowrap}
+.shop-scroll{padding:14px 18px 13px}
+.upgrade-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.upgrade-card{gap:10px;padding:13px 14px;background:#19334ac4;border-radius:13px}
+.upgrade-card.affordable{background:#1a3b46d4}
+.upgrade-top{gap:5px}
+.upgrade-name{font-size:14px;gap:7px}
+.upgrade-glyph{width:29px;height:29px;border-radius:9px;font-size:15px}
+.upgrade-level{font-size:10px;padding:4px 6px}
+.upgrade-bottom{padding:0;align-items:center}
+.upgrade-stats{line-height:1.2;font-size:12px}
+.buy-btn{min-width:84px;font-size:12px;padding:11px 8px}
+.length-shop{display:flex;gap:12px;align-items:center;justify-content:space-between;margin-top:12px;padding:13px 14px;border:1px solid #5b87954d;border-radius:13px;background:#123149}
+.length-label{font-size:14px;font-weight:900;white-space:nowrap;color:#c6efed}
+.length-shop input{flex:1;min-width:45px}
+.length-shop output{min-width:69px;text-align:right;font-variant-numeric:tabular-nums;font-weight:900;color:#ffcf88}
+.shop-footer{justify-content:flex-end;padding:13px 18px}
+.erase-btn{font-size:21px;text-decoration:none;color:#a2b8c8;padding:8px 14px}
+.start-btn{font-size:19px;min-width:160px;padding:13px 28px}
+@media(max-width:700px){
+ .hud{top:calc(10px + env(safe-area-inset-top,0px));left:10px}
+ .hud-item{padding:7px 9px}.hud-item strong{font-size:15px}
+ .shop-header{padding:calc(15px + env(safe-area-inset-top,0px)) 12px 11px;flex-direction:row;align-items:center;justify-content:space-between}
+ .shop-header h1{font-size:20px}
+ .shop-meta{justify-content:flex-end;align-items:end;flex-direction:column;gap:1px}
+ .shop-meta strong{font-size:19px}.shop-meta span{font-size:10px}
+ .shop-scroll{padding:10px 10px 14px}
+ .upgrade-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
+ .upgrade-card{padding:10px 9px;gap:9px}
+ .upgrade-name{font-size:12px;gap:5px;line-height:1.2}
+ .upgrade-glyph{width:25px;height:25px;font-size:13px}
+ .upgrade-level{font-size:10px;padding:3px 4px}
+ .upgrade-bottom{flex-wrap:wrap;gap:6px}
+ .upgrade-stats{font-size:11px;flex:1;min-width:0}
+ .buy-btn{padding:8px 7px;font-size:11px;min-width:65px;flex:0 0 auto}
+ .length-shop{gap:7px;margin-top:8px;padding:9px 10px}
+ .length-label{font-size:12px}.length-shop output{font-size:11px;min-width:52px}
+ .shop-footer{padding:8px 12px calc(10px + env(safe-area-inset-bottom,0px));justify-content:space-between}
+ .shop-buttons{display:none}
+ .start-btn{flex:0 1 auto;min-width:145px;font-size:16px;padding:11px 20px}
+ .result-card{padding:21px 16px}
+}
+@media(max-width:345px){.upgrade-grid{grid-template-columns:1fr}.upgrade-bottom{flex-wrap:nowrap}}
+@media(max-height:690px) and (min-width:701px){.shop-scroll{padding:10px 15px}.upgrade-card{padding:9px 11px;gap:6px}.upgrade-grid{gap:7px}.length-shop{margin-top:8px;padding:9px 12px}.shop-header{padding:11px 18px}}
+
+/* v2.3: shop accessible after immediate gameplay start */
+.hud{pointer-events:auto;align-items:stretch;}
+.open-shop{display:flex;align-items:center;justify-content:center;min-width:38px;padding:4px 12px;border-radius:12px;border:1px solid #8eb7cc66;background:#0a2138dc;color:#8ef4df;font-size:24px;font-weight:900;cursor:pointer;box-shadow:0 5px 18px #07142266}
+.open-shop:active{transform:translateY(2px)}
+@media(max-width:700px){.open-shop{min-width:35px;font-size:21px;padding:3px 9px}}
+</style>
+</head>
+<body>
+<main class="shell">
+  <section class="stage" aria-label="二重振り子ブランコ靴飛ばし">
+    <canvas id="game" width="960" height="540" aria-label="ブランコと靴の動くゲーム画面"></canvas>
+    <div class="hud" id="hud"><div class="hud-item"><strong id="hudPoints">0</strong><span class="h-label">P</span></div><button id="openShop" class="open-shop" type="button" aria-label="強化画面を開く" title="強化">↑</button></div>
+    <div class="result-overlay" id="result" aria-live="polite" aria-hidden="true">
+      <div class="result-card">
+        <div id="newRecord" class="record" hidden>NEW BEST!</div>
+        <div id="resultDistance" class="result-distance">0.00 m</div>
+        <div class="result-reward"><strong id="resultReward">+0 P</strong></div>
+        <div class="result-actions">
+          <button id="visitShop" class="visit-shop" type="button">強化</button>
+          <button id="again" class="again" type="button">もう一度</button>
+          <a id="share" class="share" href="https://twitter.com/intent/tweet" target="_blank" rel="noopener noreferrer">𝕏 で共有</a>
+        </div>
+      </div>
+    </div>
+  </section>
+  <div class="controls" id="controls">
+    <button id="pump" class="action pump" type="button" aria-label="漕ぐ"><span>漕ぐ</span><span class="count" id="strokeCount">0/5</span></button>
+    <button id="throw" class="action shoot" type="button" disabled>射出</button>
+  </div>
+  <div class="shop-overlay" id="shop" role="dialog" aria-modal="true" aria-labelledby="shopTitle">
+    <div class="shop-panel">
+      <header class="shop-header">
+        <h1 id="shopTitle">強化</h1>
+        <div class="shop-meta"><strong id="shopPoints">0 P</strong><span id="shopBest">BEST 0.00 m</span></div>
+      </header>
+      <div class="shop-scroll" id="shopScroll">
+        <div class="upgrade-grid" id="upgradeGrid"></div>
+        <div class="length-shop">
+          <span class="length-label">↕ 長さ</span>
+          <input id="lengthInShop" type="range" min="2" max="3.45" step="0.05" value="3.45" aria-label="使用するブランコの長さ">
+          <output id="shopLengthValue" for="lengthInShop">3.45 m</output>
+        </div>
+      </div>
+      <footer class="shop-footer">
+        <button class="erase-btn" id="eraseSave" type="button" title="セーブデータ初期化">↺</button>
+        <button class="start-btn" id="startGame" type="button">プレイ ▶</button>
+      </footer>
+    </div>
+  </div>
+  <p class="sr-only">スペースキーで漕ぐ。いつでもEnterキーで射出。Rキーで再挑戦。</p>
+</main>
+<script>
+
+(()=>{'use strict';
+const $=id=>document.getElementById(id);
+const canvas=$('game'),ctx=canvas.getContext('2d');
+const BASE_W=960,BASE_H=540, TAU=Math.PI*2;
+let W=BASE_W,H=BASE_H;
+const PH={l1:2.28,l2:2.10,leg:.38,m1:6.00,m2:1.80,g:9.81,h:5.35,d1:.14,d2:.08,air1:.12,air2:.04,pumpForce:66,strokeTime:.24,maxStrokeWork:34,energyScale:145,footKick:2.40};
+let MAX=5,SCALE=74;
+// Fresh economy: keep older incremental saves intact under their original key.
+const SAVE_KEY='swing_shot_incremental_v4', OLD_SAVE_KEY='swing_shot_incremental_v3', LEGACY_SAVE_KEY='swing_shot_incremental_v2';
+const OLD_STROKES=[5,10,20,40,65,100];
+const UPGRADES=[
+ {id:'power',icon:'↗',name:'漕ぐ力',base:12,growth:1.75,max:5},
+ {id:'strokes',icon:'＋',name:'漕ぐ回数',base:12,growth:1,max:100},
+ {id:'kick',icon:'➤',name:'射出速度',base:18,growth:1.78,max:5},
+ {id:'length',icon:'↕',name:'ブランコ長',base:22,growth:1.81,max:5},
+ {id:'bonus',icon:'★',name:'P倍率',base:29,growth:1.87,max:5},
+ {id:'drag',icon:'≈',name:'空気抵抗',base:18,growth:1.77,max:5},
+ {id:'joint',icon:'●',name:'関節軽量',base:22,growth:1.81,max:5},
+ {id:'seat',icon:'▱',name:'座面軽量化',base:25,growth:1.82,max:5}
+];
+function blankSave(){return {points:0,best:0,runs:0,totalEarned:0,length:3.45,levels:Object.fromEntries(UPGRADES.map(u=>[u.id,0]))}}
+function loadSave(){let data=null,oldVersion='';
+ try{
+   data=JSON.parse(localStorage.getItem(SAVE_KEY)||'null');
+   if(!data){data=JSON.parse(localStorage.getItem(OLD_SAVE_KEY)||'null');oldVersion=data?'v3':''}
+   if(!data){data=JSON.parse(localStorage.getItem(LEGACY_SAVE_KEY)||'null');oldVersion=data?'v2':''}
+ }catch{}
+ const safe=blankSave();if(!data||typeof data!=='object')return safe;
+ for(const k of ['points','best','runs','totalEarned'])if(Number.isFinite(data[k]))safe[k]=Math.max(0,Math.min(1e13,data[k]));
+ for(const u of UPGRADES){const x=data.levels&&data.levels[u.id];if(Number.isFinite(x)){
+   let level=Math.floor(x);
+   // Previous editions had a nonlinear 5-level stroke progression.
+   // Preserve the number of available pumps when importing those saves.
+   if(u.id==='strokes'&&oldVersion)level=OLD_STROKES[Math.min(5,Math.max(0,level))]-5;
+   safe.levels[u.id]=Math.max(0,Math.min(u.max,level));
+ }}
+ if(Number.isFinite(data.length))safe.length=Math.max(2,Math.min(7.35,data.length));
+ else safe.length=3.45+.78*safe.levels.length;
+ // If importing a legacy game, keep any existing seat upgrades.
+ if(oldVersion==='v2'&&data.levels&&Number.isFinite(data.levels.recovery)){
+   for(let i=0;i<Math.min(5,Math.max(0,Math.floor(data.levels.recovery)));i++)safe.points+=Math.floor(16*1.76**i);
+ }
+ safe.length=Math.max(2,Math.min(3.45+.78*safe.levels.length,safe.length));
+ return safe;
+}
+let progress=loadSave(),shopOpen=false;
+function saveProgress(){try{localStorage.setItem(SAVE_KEY,JSON.stringify(progress))}catch{}}
+function lv(id){return progress.levels[id]||0}
+function unlockedLength(){return 3.45+.78*lv('length')}
+function syncLengthControls(){
+ const mx=unlockedLength(),v=Math.max(2,Math.min(mx,progress.length));
+ const el=$('lengthInShop');el.min='2';el.max=mx.toFixed(2);el.value=v.toFixed(2);
+ $('shopLengthValue').textContent=v.toFixed(2)+' m';
+}
+function setSwingLength(value){
+ const n=Number(value);if(!Number.isFinite(n))return;
+ progress.length=Math.max(2,Math.min(unlockedLength(),Math.round(n*20)/20));
+ saveProgress();
+ // During shoe flight, the running ballistic/ground calculations are kept fixed.
+ // The selected length will be used on the next attempt.
+ if(shopOpen||state?.phase==='swing'){
+  applyUpgrades();if(state&&state.phase==='swing'){state.seatTrail=[];state.lastTrailTime=state.simTime;}
+ }
+ syncLengthControls();
+}
+function cost(u){
+ const n=lv(u.id);if(n>=u.max)return null;
+ // Gentle quadratic curve: buying each extra pump remains achievable through Lv.100.
+ if(u.id==='strokes')return Math.floor((12+2*n+.065*n*n)*1.24);
+ return Math.max(1,Math.floor(u.base*1.24*Math.pow(u.growth,n)));
+}
+function fmtNum(n){return Math.floor(n).toLocaleString('ja-JP')}
+function applyUpgrades(){
+ MAX=5+lv('strokes');
+ const total=Math.max(2,Math.min(unlockedLength(),progress.length)),fraction=.52055;
+ PH.l1=total*fraction;PH.l2=total*(1-fraction);
+ PH.h=total+PH.leg+.59;
+ PH.m1=6*Math.pow(.94,lv('joint'));
+ // Seat-lightening levels reduce the lower link inertia, enabling faster rotations.
+ PH.m2=1.8*Math.pow(.76,lv('seat'));
+ PH.pumpForce=57*Math.pow(1.23,lv('power'));
+ PH.maxStrokeWork=29*Math.pow(1.23,lv('power'));
+ PH.strokeTime=.24;
+ const airFactor=Math.max(0,1-lv('drag')/5);
+ PH.air1=.14*airFactor;
+ PH.air2=.055*airFactor;
+ PH.footKick=1.5+.95*lv('kick');
+ // High-level seat upgrades also let more pumping energy feed the upper swing.
+ PH.energyScale=132*(total/3.45)*Math.sqrt((PH.m1+PH.m2)/7.8)*(1+lv('seat')/5);
+}
+function upgradeValue(id,level){
+ switch(id){
+ case 'power':return `${Math.round(57*1.23**level)}`;
+ case 'strokes':return `${5+level}回`;
+ case 'kick':return `${(1.5+.95*level).toFixed(2)}m/s`;
+ case 'length':return `${(3.45+.78*level).toFixed(2)}m`;
+ case 'joint':return `${(6*.94**level).toFixed(2)}`;
+ case 'seat':return `${(1.8*.76**level).toFixed(2)}`;
+ case 'drag':return `${Math.round(100*Math.max(0,1-level/5))}%`;
+ case 'bonus':return `×${(1+.30*level).toFixed(2)}`;
+ }
+}
+function updateHud(){
+ $('hudPoints').textContent=fmtNum(progress.points);
+ $('shopPoints').textContent=fmtNum(progress.points)+' P';
+ $('shopBest').textContent='BEST '+progress.best.toFixed(2)+' m';
+}
+function renderShop(){
+ updateHud();syncLengthControls();const grid=$('upgradeGrid'),y=$('shopScroll').scrollTop;
+ grid.innerHTML='';
+ for(const u of UPGRADES){
+ const n=lv(u.id),c=cost(u),can=c!==null&&progress.points>=c;
+ const card=document.createElement('div');card.className='upgrade-card'+(can?' affordable':'');
+ const next=n>=u.max?'MAX':upgradeValue(u.id,n+1);
+ card.innerHTML=`<div class="upgrade-top"><div class="upgrade-name"><span class="upgrade-glyph">${u.icon}</span><span>${u.name}</span></div><span class="upgrade-level">Lv.${n}/${u.max}</span></div><div class="upgrade-bottom"><div class="upgrade-stats">${upgradeValue(u.id,n)} <span>→ ${next}</span></div><button class="buy-btn ${can?'can-buy':''}" ${can?'':'disabled'} type="button">${c===null?'MAX':fmtNum(c)+' P'}</button></div>`;
+ const buy=card.querySelector('button');buy.setAttribute('aria-label',u.name+'を強化');buy.addEventListener('click',()=>buyUpgrade(u.id));
+ grid.append(card);
+ }
+ $('shopScroll').scrollTop=y;
+}
+function buyUpgrade(id){
+ if(!shopOpen)return;
+ const u=UPGRADES.find(x=>x.id===id);if(!u)return;
+ const c=cost(u);if(c===null||progress.points<c)return;
+ progress.points-=c;progress.levels[id]++;
+ // Length upgrades unlock a larger maximum and equip that new length by default.
+ if(id==='length')progress.length=unlockedLength();
+ saveProgress();applyUpgrades();renderShop();
+}
+function showShop(){
+ shopOpen=true;$('shop').classList.add('show');$('result').classList.remove('show');$('result').setAttribute('aria-hidden','true');
+ $('hud').classList.add('is-hidden');$('controls').classList.add('hidden');renderShop();
+}
+function startRound(){
+ applyUpgrades();shopOpen=false;$('shop').classList.remove('show');$('hud').classList.remove('is-hidden');
+ reset();
+}
+function claimPoints(distance,backward=false){
+ const distanceScore=Math.floor(Math.max(0,distance)*2);
+ const base=12+distanceScore,multi=1+.30*lv('bonus');
+ // Backward flights earn one quarter of the normal landing reward.
+ const reward=Math.max(1,Math.floor(base*multi*(backward?.25:1)));
+ progress.points=Math.min(1e13,progress.points+reward);
+ progress.totalEarned=Math.min(1e13,progress.totalEarned+reward);
+ progress.runs++;
+ const record=Math.max(0,distance)>progress.best+1e-6;
+ if(record)progress.best=Math.max(0,distance);
+ saveProgress();updateHud();
+ return {reward,distanceScore,record,multi};
+}
+
+let PIVOT_PX=270,PIVOT_PY=62;
+const stars=Array.from({length:84},(_,i)=>({x:((i*3571+373)%937)+12,y:((i*2039+107)%285)+11,r:.6+((i*13)%12)/15,phase:(i%11)*.53}));
+let state,lastFrame=0,accumulator=0,now=0,dpr=1;
+function initial(){return{q:[-.59+(Math.random()-.5)*.10,-.79+(Math.random()-.5)*.14,.12,-.09],kick:0,phase:'swing',lastKick:-10,shoe:null,cam:0,camY:0,trail:[],seatTrail:[],lastTrailTime:0,flash:null,simTime:0,announced:false,landing:null,crater:null,dust:[],shake:0,peakSpeed:0,pumpStats:{},visitors:[],bonusEarned:0,bonusEffects:[]}}
+// The incremental edition has its own save file, separate from the public game.
+let best=progress.best;
+function setBest(n){best=n;progress.best=n;saveProgress();updateHud()}
+function matrix(q){const [a,b]=q,d=a-b,diag1=(PH.m1+PH.m2)*PH.l1*PH.l1,diag2=PH.m2*PH.l2*PH.l2,c=PH.m2*PH.l1*PH.l2*Math.cos(d),det=diag1*diag2-c*c;return{diag1,diag2,c,det}}
+function deriv(q){const[a,b,wa,wb]=q,d=a-b,{diag1,diag2,c,det}=matrix(q);
+ const f1=-PH.m2*PH.l1*PH.l2*Math.sin(d)*wb*wb-(PH.m1+PH.m2)*PH.g*PH.l1*Math.sin(a)-PH.d1*wa-PH.air1*wa*Math.abs(wa);
+ const f2= PH.m2*PH.l1*PH.l2*Math.sin(d)*wa*wa-PH.m2*PH.g*PH.l2*Math.sin(b)-PH.d2*wb-PH.air2*wb*Math.abs(wb);
+ return[wa,wb,(f1*diag2-f2*c)/det,(f2*diag1-f1*c)/det]}
+function rk4(q,dt){const a=deriv(q),b=deriv(q.map((v,i)=>v+a[i]*dt/2)),c=deriv(q.map((v,i)=>v+b[i]*dt/2)),d=deriv(q.map((v,i)=>v+c[i]*dt));return q.map((v,i)=>v+dt*(a[i]+2*b[i]+2*c[i]+d[i])/6)}
+function energy(q){const[a,b,wa,wb]=q,{diag1,diag2,c}=matrix(q);return .5*(diag1*wa*wa+2*c*wa*wb+diag2*wb*wb)+(PH.m1+PH.m2)*PH.g*PH.l1*(1-Math.cos(a))+PH.m2*PH.g*PH.l2*(1-Math.cos(b))}
+function seatPoint(q=state.q){const[a,b,wa,wb]=q;return{x:PH.l1*Math.sin(a)+PH.l2*Math.sin(b),y:PH.l1*Math.cos(a)+PH.l2*Math.cos(b),vx:PH.l1*Math.cos(a)*wa+PH.l2*Math.cos(b)*wb,vy:-PH.l1*Math.sin(a)*wa-PH.l2*Math.sin(b)*wb}}
+function endPoint(q=state.q){const[a,b,wa,wb]=q,L=PH.l2+PH.leg;return{x:PH.l1*Math.sin(a)+L*Math.sin(b),y:PH.l1*Math.cos(a)+L*Math.cos(b),vx:PH.l1*Math.cos(a)*wa+L*Math.cos(b)*wb,vy:-PH.l1*Math.sin(a)*wa-L*Math.sin(b)*wb}}
+// The lower link's tangent is n=(cos b,-sin b). The complete foot velocity
+// can contain an upper-link normal component: project it out at release so
+// that the resulting shoe velocity is exactly perpendicular to the lower link.
+function launchState(q=state.q){const p=endPoint(q),b=q[1],nx=Math.cos(b),ny=-Math.sin(b),vTan=p.vx*nx+p.vy*ny;
+ const sign=Math.abs(vTan)>.05?Math.sign(vTan):(Math.abs(q[3])>.05?Math.sign(q[3]):1);
+ const speed=Math.abs(vTan)+PH.footKick;
+ return {...p,vx:sign*nx*speed,vy:sign*ny*speed,nx:sign*nx,ny:sign*ny,baseSpeed:Math.abs(vTan),speed}}
+
+function hitPrediction(p){let t=(-p.vy+Math.sqrt(p.vy*p.vy+2*PH.g*(PH.h-p.y)))/PH.g;if(!Number.isFinite(t)||t<0)t=0;return {x:p.x+p.vx*t,t,dx:p.vx*t}}
+function fmt(v){return Number(v).toFixed(2)}
+function speak(){} // Gameplay is intentionally free of text notifications.
+// Self-contained procedural SFX: no external audio files or network needed.
+// Web Audio begins only after a real user interaction (mobile autoplay policy).
+const SFX={ctx:null,bus:null,noise:null,lastWhoosh:-10,fastZone:false,enabled:true};
+function ensureAudio(){
+  try{
+    if(!SFX.enabled)return false;
+    if(!SFX.ctx){
+      const AC=window.AudioContext||window.webkitAudioContext;
+      if(!AC)return false;
+      const ac=new AC();
+      const limiter=ac.createDynamicsCompressor();
+      limiter.threshold.value=-17;limiter.knee.value=12;limiter.ratio.value=5;
+      limiter.attack.value=.004;limiter.release.value=.18;
+      const bus=ac.createGain();bus.gain.value=.55;
+      bus.connect(limiter);limiter.connect(ac.destination);
+      const count=Math.max(2048,Math.floor(ac.sampleRate*1.2));
+      const noise=ac.createBuffer(1,count,ac.sampleRate),data=noise.getChannelData(0);
+      for(let i=0;i<count;i++)data[i]=Math.random()*2-1;
+      SFX.ctx=ac;SFX.bus=bus;SFX.noise=noise;
+    }
+    if(SFX.ctx.state==='suspended')SFX.ctx.resume().catch(()=>{});
+    return SFX.ctx.state!=='closed';
+  }catch{return false}
+}
+function sfxTone(type,fStart,fEnd,duration,volume,attack=.012,when=0){
+  if(!SFX.ctx||!SFX.bus)return;
+  const ac=SFX.ctx,t=ac.currentTime+when,osc=ac.createOscillator(),g=ac.createGain();
+  osc.type=type;
+  osc.frequency.setValueAtTime(Math.max(24,fStart),t);
+  osc.frequency.exponentialRampToValueAtTime(Math.max(24,fEnd),t+duration);
+  g.gain.setValueAtTime(.0001,t);
+  g.gain.exponentialRampToValueAtTime(Math.max(.0002,volume),t+Math.min(attack,duration*.35));
+  g.gain.exponentialRampToValueAtTime(.0001,t+duration);
+  osc.connect(g);g.connect(SFX.bus);
+  osc.start(t);osc.stop(t+duration+.025);
+  osc.onended=()=>{try{osc.disconnect();g.disconnect()}catch{}};
+}
+function sfxAir(freqFrom,freqTo,duration,volume,attack=.012,q=.64,when=0){
+  if(!SFX.ctx||!SFX.bus||!SFX.noise)return;
+  const ac=SFX.ctx,t=ac.currentTime+when,src=ac.createBufferSource();
+  const filter=ac.createBiquadFilter(),g=ac.createGain();
+  src.buffer=SFX.noise;filter.type='bandpass';filter.Q.value=q;
+  filter.frequency.setValueAtTime(Math.max(70,freqFrom),t);
+  filter.frequency.exponentialRampToValueAtTime(Math.max(70,freqTo),t+duration);
+  g.gain.setValueAtTime(.0001,t);
+  g.gain.exponentialRampToValueAtTime(Math.max(.0002,volume),t+Math.min(attack,duration*.4));
+  g.gain.exponentialRampToValueAtTime(.0001,t+duration);
+  src.connect(filter);filter.connect(g);g.connect(SFX.bus);
+  src.start(t);src.stop(t+duration+.025);
+  src.onended=()=>{try{src.disconnect();filter.disconnect();g.disconnect()}catch{}};
+}
+function soundPump(){
+  // シュッ: short airy sweep with a little pitch movement.
+  if(!ensureAudio())return;
+  sfxAir(2400,610,.16,.19,.009,.7);
+  sfxTone('triangle',380,185,.12,.065,.006);
+}
+function soundWhoosh(speed){
+  // フォン: longer rush as the swing passes near the bottom at high speed.
+  if(!SFX.ctx||SFX.ctx.state!=='running')return;
+  const strength=clamp((speed-4.0)/13);
+  const dur=.22+strength*.20;
+  sfxAir(930+strength*1050,240+strength*380,dur,.14+strength*.20,.04,.50);
+  sfxTone('sine',115+strength*75,55+strength*30,dur*.85,.045+strength*.055,.026);
+}
+function soundThrow(speed){
+  // ポーーン: round, playful tonal sweep with a brief pluck.
+  if(!ensureAudio())return;
+  const extra=clamp(speed/26);
+  sfxTone('sine',575+extra*130,252+extra*55,.57,.34,.008);
+  sfxTone('triangle',840+extra*110,390+extra*60,.25,.13,.006);
+  sfxTone('sine',337+extra*80,270+extra*40,.66,.10,.010,.015);
+}
+function soundImpact(speed){
+  // ドゴーン: deep descending boom, thump and short gritty impact.
+  if(!SFX.ctx||SFX.ctx.state!=='running')return;
+  const strength=clamp(speed/30);
+  sfxTone('sine',151+strength*48,42,.76,.34+strength*.14,.009);
+  sfxTone('triangle',106,38,.47,.15+strength*.07,.006);
+  sfxAir(2500,430,.10,.18+strength*.06,.003,.65);
+  sfxAir(570,115,.53,.19+strength*.11,.008,.60,.024);
+}
+function updateSwingWhoosh(){
+  const seat=seatPoint(),speed=Math.hypot(seat.vx,seat.vy);
+  const bottom=seat.y/(PH.l1+PH.l2);
+  const fastZone=speed>4.5&&bottom>.69;
+  if(fastZone&&!SFX.fastZone&&state.simTime-SFX.lastWhoosh>.48){
+    soundWhoosh(speed);
+    SFX.lastWhoosh=state.simTime;
+  }
+  SFX.fastZone=fastZone;
+}
+// A stroke follows the horizontal direction in which the seat is already moving.
+// Near the bottom of the swing, a rightward stroke boosts rightward motion and
+// a leftward stroke boosts leftward motion. Work stays positive in both cases.
+// Stationary seats receive no energy, and rapid taps lose effectiveness.
+function clamp(v,lo=0,hi=1){return Math.max(lo,Math.min(hi,v))}
+function pumpConditions(q=state.q,elapsed=state.simTime-state.lastKick){
+ const p=seatPoint(q),downwardness=p.y/(PH.l1+PH.l2);
+ // Lower-half passage is the efficient part of a normal pumping stroke.
+ const phase=clamp((downwardness-.38)/.62)**2;
+ // A hard stroke takes time to reset: quick taps still consume one attempt.
+ const recovery=clamp((elapsed-.20)/.86);
+ const direction=p.vx;
+ // The player pushes *with* the current direction of travel, not always right.
+ // Positive work at either sign of vx: W = F * dt * |vx| * efficiency.
+ const totalEnergy=energy(q);
+ const effort=1/(1+Math.pow(totalEnergy/PH.energyScale,3));
+ const suppliedWork=PH.pumpForce*PH.strokeTime*Math.abs(direction)*phase*recovery*effort;
+ const work=Math.min(PH.maxStrokeWork,suppliedWork);
+ // Exact effective mass of a horizontal impulse applied at the seat.
+ const [a,b]=q,{diag1,diag2,c,det}=matrix(q),J1=PH.l1*Math.cos(a),J2=PH.l2*Math.cos(b);
+ const response1=(diag2*J1-c*J2)/det,response2=(diag1*J2-c*J1)/det;
+ const invMass=J1*response1+J2*response2;
+ return {phase,recovery,direction,work,J1,J2,response1,response2,invMass};
+}
+function pump(){if(state.phase!=='swing'||state.kick>=MAX)return;
+ const gap=state.simTime-state.lastKick;
+ // Mechanical switch debounce only; inputs closer than this are one touch.
+ if(gap<.075)return;
+ soundPump();
+ const before=energy(state.q),c=pumpConditions();
+ let impulse=0;
+ if(c.work>1e-10 && Math.abs(c.direction)>1e-8){
+   // The seat first receives a positive-work horizontal impulse along travel.
+   // At high seat-upgrade levels some of the same work is transmitted through
+   // the rider to the intermediate link, making full upper-link loops possible.
+   const lever=Math.abs(Math.cos(state.q[0]));
+   const upperShare=.60*Math.pow(lv('seat')/5,2)*clamp((lever-.12)/.55);
+   const seatWork=c.work*(1-upperShare),upperWork=c.work*upperShare;
+   const speed=Math.abs(c.direction);
+   const root=Math.sqrt(speed*speed+2*c.invMass*seatWork);
+   impulse=Math.sign(c.direction)*2*seatWork/(speed+root);
+   state.q[2]+=impulse*c.response1;
+   state.q[3]+=impulse*c.response2;
+   if(upperWork>1e-10){
+     // Work on the intermediate joint, computed with the same mass matrix.
+     const a=state.q[0],mc=matrix(state.q),j=PH.l1*Math.cos(a);
+     const r1=mc.diag2*j/mc.det,r2=-mc.c*j/mc.det;
+     const inv=j*r1;
+     if(inv>1e-7){
+       const midV=j*state.q[2],v=Math.abs(midV);
+       const impulseMid=(Math.sign(midV)||Math.sign(c.direction))*2*upperWork/
+          (v+Math.sqrt(v*v+2*inv*upperWork));
+       state.q[2]+=impulseMid*r1;
+       state.q[3]+=impulseMid*r2;
+     }
+   }
+ }
+ const delta=energy(state.q)-before;
+ state.kick++;state.lastKick=state.simTime;
+ // An input affects the physics, but never produces a score or timing label.
+ updateControls();
+}
+// Flying encounters: independent 10% crow and 1% UFO rolls each attempt.
+// Targets are small and off-axis. Collision is checked continuously over each
+// physics tick, so a fast shoe cannot tunnel through a bird or UFO.
+function spawnVisitors(p){
+ state.visitors=[];state.bonusEarned=0;state.bonusEffects=[];
+ const landing=hitPrediction(p),duration=landing.t;
+ const canAim=duration>.2&&Math.abs(landing.dx)>=2;
+ const create=(kind)=>{
+   const hitTime=canAim?duration*(.32+Math.random()*.43):Math.max(.25,duration*.5);
+   const off=(Math.random()*2-1)*(kind==='crow'?2.3:3.1);
+   const flySign=Math.sign(p.vx)||1;
+   const vx=flySign*(kind==='crow'?-(.65+Math.random()*1.0):-(.12+Math.random()*.25));
+   const predictedY=p.y+p.vy*hitTime+.5*PH.g*hitTime*hitTime;
+   const y=Math.min(PH.h-.55,(canAim?predictedY:PH.h-2)+off);
+   const x=canAim?p.x+p.vx*hitTime:p.x+flySign*(5+Math.random()*3);
+   state.visitors.push({kind,x,y,vx,age:0,phase:Math.random()*TAU,
+     amp:kind==='crow'?.27:.17,freq:kind==='crow'?5.6:2.3,
+     radius:kind==='crow'?.24:.39,points:kind==='crow'?1000:5000,
+     hit:false,prevX:0,prevY:0});
+ };
+ if(Math.random()<.10)create('crow');
+ if(Math.random()<.01)create('ufo');
+}
+function visitorPosition(v){return{x:v.x,y:v.y+v.amp*Math.sin(v.age*v.freq+v.phase)}}
+function shoeHitVisitor(v,a,b){
+ const o={x:v.prevX,y:v.prevY},e=visitorPosition(v);
+ const rx=a.x-o.x,ry=a.y-o.y,vx=(b.x-a.x)-(e.x-o.x),vy=(b.y-a.y)-(e.y-o.y);
+ const t=clamp(-(rx*vx+ry*vy)/Math.max(1e-12,vx*vx+vy*vy));
+ return Math.hypot(rx+vx*t,ry+vy*t)<=v.radius+.16;
+}
+function rewardVisitor(v){
+ v.hit=true;
+ progress.points=Math.min(1e13,progress.points+v.points);
+ progress.totalEarned=Math.min(1e13,progress.totalEarned+v.points);
+ state.bonusEarned+=v.points;
+ const q=visitorPosition(v);
+ state.bonusEffects.push({x:q.x,y:q.y,age:0,points:v.points});
+ state.shake=Math.max(state.shake,v.kind==='ufo'?10:5);
+ saveProgress();updateHud();
+ if(ensureAudio()){
+  sfxTone('sine',v.kind==='ufo'?840:660,v.kind==='ufo'?300:1080,.36,.24);
+  sfxTone('triangle',420,730,.19,.14,.01,.09);
+ }
+}
+function shoot(){if(state.phase!=='swing')return;
+ const p=launchState();soundThrow(p.speed);state.shoe={x:p.x,y:p.y,vx:p.vx,vy:p.vy,angle:Math.atan2(p.vy,p.vx),startX:p.x,startY:p.y,baseSpeed:p.baseSpeed,footKick:PH.footKick};
+ state.phase='flying';state.trail=[{x:p.x,y:p.y}];state.announced=false;state.peakSpeed=p.speed;spawnVisitors(p);
+ updateControls();
+}
+function reset(){applyUpgrades();state=initial();accumulator=0;lastFrame=0;SFX.lastWhoosh=-10;SFX.fastZone=false;
+ $('result').classList.remove('show');$('result').setAttribute('aria-hidden','true');
+ updateControls();render(now);
+}
+function updateControls(){const n=MAX-state.kick;
+ $('pump').disabled=state.phase!=='swing'||n===0;
+ $('throw').disabled=state.phase!=='swing';
+ $('strokeCount').textContent=state.kick+'/'+MAX;
+ $('controls').classList.toggle('hidden',state.phase==='landed'||shopOpen);
+}
+function publicGameUrl(){
+ // Only attach a playable web address if this file is actually published.
+ if(!/^https?:$/.test(location.protocol))return '';
+ const host=location.hostname.toLowerCase();
+ if(host==='localhost'||host==='127.0.0.1'||host==='0.0.0.0'||
+    host.endsWith('.openai.com')||host.endsWith('.chatgpt.com')||
+    host==='chatgpt.com'||host.includes('sandbox'))return '';
+ return location.origin+location.pathname;
+}
+function makeShareUrl(distance){
+ // If hosted on GitHub Pages, the page's actual public URL is already known.
+ // When opened as a downloaded file, there is no real public game URL to share.
+ const url=publicGameUrl();
+ const text=`二重振り子ブランコ靴飛ばし INCREMENTAL に挑戦！\n飛距離：${distance>=0?'+':''}${fmt(distance)} m 👟\n強化して記録を伸ばそう！${url?'\n'+url:''}\n#二重振り子ブランコ靴飛ばし #ブラウザゲーム`;
+ return 'https://twitter.com/intent/tweet?'+new URLSearchParams({text}).toString();
+}
+function land(){
+ const s=state.shoe;state.phase='landed';state.landing=s.x-s.startX;
+ state.resultRevealAt=state.simTime+.85;
+ state.crater={x:s.x,width:0.37+Math.min(1.50,Math.sqrt(Math.abs(state.landing))*.125),depth:.10+Math.min(.53,Math.sqrt(Math.abs(state.landing))*.047),time:state.simTime};
+ state.shake=7+Math.min(18,Math.abs(state.landing)*.17);
+ state.impactSpeed=Math.hypot(s.vx,s.vy);soundImpact(state.impactSpeed);spawnDust();
+ // In the incremental mode both leftward and rightward flights count.
+ // The signed displacement is still used for rendering and landing location.
+ const distance=Math.abs(state.landing);
+ const backward=state.landing<0;const {reward,distanceScore,record,multi}=claimPoints(distance,backward);best=progress.best;
+ $('resultDistance').textContent=(backward?'-':'+')+fmt(distance)+' m';
+ $('newRecord').hidden=!record;
+ $('resultReward').textContent='+'+fmtNum(reward+state.bonusEarned)+' P';
+ $('share').href=makeShareUrl(state.landing);
+ // Hold on the actual impact for 0.85 seconds before showing the score.
+ // The result stays visible until the player explicitly chooses an action.
+ updateControls();
+}
+function random01(n){const x=Math.sin(n*127.1+78.233)*43758.5453;return x-Math.floor(x)}
+function spawnDust(){const c=state.crater;if(!c)return;const amount=30+Math.min(48,Math.floor(Math.abs(state.landing)*.24));state.dust=[];
+ for(let i=0;i<amount;i++){const r=random01(i+13),a=Math.PI*(1.09+random01(i+76)*.82),sp=1.2+random01(i+246)*(2.1+Math.min(5,Math.abs(state.landing)*.045));
+ state.dust.push({x:c.x+(r-.5)*c.width*.75,y:PH.h,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,age:0,ttl:.9+random01(i+334)*1.4,size:2+random01(i+810)*5,color:i%3===0?'#e5b886':i%3===1?'#b98c66':'#8c7365'});}}
+function step(dt){state.simTime+=dt;state.q=rk4(state.q,dt);
+ // Both links remain free to rotate; quadratic drag softens runaway speeds.
+ state.q[2]=Math.max(-29,Math.min(29,state.q[2]));state.q[3]=Math.max(-42,Math.min(42,state.q[3]));
+ if(state.simTime-state.lastTrailTime>.033){const sp=seatPoint();state.seatTrail.push({x:sp.x,y:sp.y,t:state.simTime});state.lastTrailTime=state.simTime;if(state.seatTrail.length>165)state.seatTrail.shift()}
+ if(state.phase==='swing')updateSwingWhoosh();
+ if(state.phase==='flying'){
+   const p=state.shoe,ox=p.x,oy=p.y,ovy=p.vy;
+   p.x+=p.vx*dt;p.y+=ovy*dt+.5*PH.g*dt*dt;p.vy+=PH.g*dt;
+   for(const v of state.visitors){
+    if(v.hit)continue;
+    const prev=visitorPosition(v);v.prevX=prev.x;v.prevY=prev.y;
+    v.age+=dt;v.x+=v.vx*dt;
+    if(shoeHitVisitor(v,{x:ox,y:oy},p))rewardVisitor(v);
+   }
+   if(state.trail.length===0||Math.hypot(p.x-state.trail[state.trail.length-1].x,p.y-state.trail[state.trail.length-1].y)>.11){state.trail.push({x:p.x,y:p.y});if(state.trail.length>340)state.trail.shift()}
+   if(p.y>=PH.h){const left=PH.h-oy,t=(-ovy+Math.sqrt(Math.max(0,ovy*ovy+2*PH.g*left)))/PH.g;p.x=ox+p.vx*Math.min(dt,Math.max(0,t));p.y=PH.h;p.angle=Math.atan2(p.vy,p.vx);land()}
+ }
+ if(state.phase==='flying'){const p=state.shoe;const targetX=p.x-(W*.52-PIVOT_PX)/SCALE+Math.max(-1.3,Math.min(1.3,p.vx*.032));
+ const targetY=p.y-(H*.45-PIVOT_PY)/SCALE;
+ const rate=11+Math.min(24,Math.abs(p.vx)*.40),follow=1-Math.exp(-rate*dt);
+ state.cam+=(targetX-state.cam)*follow;state.camY+=(targetY-state.camY)*(1-Math.exp(-Math.max(6,rate*.65)*dt));
+ }else if(state.phase==='landed'){const p=state.shoe;const tx=p.x-(W*.52-PIVOT_PX)/SCALE,ty=p.y-(H*.73-PIVOT_PY)/SCALE;
+ const f=1-Math.exp(-4*dt);state.cam+=(tx-state.cam)*f;state.camY+=(ty-state.camY)*f;
+ }
+ if(state.phase==='landed'&&state.resultRevealAt!==undefined&&
+    state.simTime>=state.resultRevealAt&&!shopOpen){
+   state.resultRevealAt=undefined;
+   $('result').classList.add('show');
+   $('result').setAttribute('aria-hidden','false');
+ }
+ if(state.phase==='flying')state.peakSpeed=Math.max(state.peakSpeed,Math.hypot(state.shoe.vx,state.shoe.vy));
+ for(const fx of state.bonusEffects)fx.age+=dt;
+ state.bonusEffects=state.bonusEffects.filter(fx=>fx.age<1.35);
+ for(const p of state.dust){p.age+=dt;p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=PH.g*.88*dt;p.vx*=1-dt*.7}
+ state.dust=state.dust.filter(p=>p.age<p.ttl);
+ state.shake*=Math.exp(-8*dt);if(state.shake<.04)state.shake=0;
+}
+function resize(){
+ const box=canvas.getBoundingClientRect(),width=Math.max(1,box.width),height=Math.max(1,box.height),aspect=width/height;
+ // Preserve the original gameplay scale. Extend the rendered world sideways on
+ // wide screens or vertically on portrait screens, rather than stretching it.
+ W=Math.max(BASE_W,BASE_H*aspect);
+ H=Math.max(BASE_H,BASE_W/aspect);
+ PIVOT_PY=62+(H-BASE_H)*.52;
+ // Keep the entire expanded pendulum in view, especially on narrow devices.
+ const total=PH.l1+PH.l2;
+ SCALE=Math.min(74,Math.max(24,(H-PIVOT_PY-38)/Math.max(1,PH.h)),(W-60)/(2*total));
+ // As the swing grows, move the pivot toward the center instead of cropping the rider.
+ const basePivot=270+(W-BASE_W)*.5;
+ PIVOT_PX=basePivot+(W*.5-basePivot)*clamp((PH.l1+PH.l2-3.45)/3.90);
+ dpr=Math.min(window.devicePixelRatio||1,2);
+ const w=Math.round(width*dpr),h=Math.round(height*dpr);
+ if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h}
+}
+function rgba(r,g,b,a){return `rgba(${r},${g},${b},${a})`}
+function roundRect(x,y,w,h,r,fill,stroke,lw=1){ctx.beginPath();ctx.roundRect(x,y,w,h,r);if(fill){ctx.fillStyle=fill;ctx.fill()}if(stroke){ctx.lineWidth=lw;ctx.strokeStyle=stroke;ctx.stroke()}}
+function line(x1,y1,x2,y2,color,width=2,dash=[]){ctx.beginPath();ctx.setLineDash(dash);ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.strokeStyle=color;ctx.lineWidth=width;ctx.stroke();ctx.setLineDash([])}
+function world(x,y){return{x:PIVOT_PX+(x-state.cam)*SCALE,y:PIVOT_PY+(y-state.camY)*SCALE}}
+function groundY(){return PIVOT_PY+(PH.h-state.camY)*SCALE}
+function craterDepthAt(x){const c=state.crater;if(!c)return 0;const q=(x-world(c.x,PH.h).x)/(c.width*SCALE);if(Math.abs(q)>=1)return 0;return c.depth*SCALE*Math.pow(1-q*q,1.22)}
+function cloud(x,y,s,alpha,dawn=0){ctx.save();ctx.translate(x,y);ctx.scale(s,s);ctx.globalAlpha=alpha;ctx.fillStyle=tint('#afcee1','#fff4e4',dawn);
+ for(const [xx,yy,rx,ry] of [[-44,4,32,13],[-19,-3,27,21],[6,-11,33,25],[30,2,35,16],[52,7,25,10]]){
+ ctx.beginPath();ctx.ellipse(xx,yy,rx,ry,0,0,TAU);ctx.fill()}
+ ctx.globalAlpha=alpha*.65;ctx.fillStyle=tint('#edf7ff','#ffffff',dawn);ctx.beginPath();ctx.ellipse(-2,-15,23,10,0,Math.PI,TAU);ctx.fill();ctx.restore()}
+function mountains(ground,layer,color,freq,height,parallax,phase){ctx.fillStyle=color;ctx.beginPath();ctx.moveTo(0,H+20);
+ for(let x=0;x<=W+25;x+=15){const wx=x+state.cam*SCALE*parallax;const z=ground-height+25*Math.sin(wx*freq+phase)+14*Math.sin(wx*freq*2.1+phase*.7);ctx.lineTo(x,z)}
+ ctx.lineTo(W+5,H+10);ctx.closePath();ctx.fill()}
+// Continuous dawn: deep night -> cobalt pre-dawn -> violet -> pink sunrise
+// -> soft morning blue, reaching its final palette at 200 metres.
+function dawnProgress(){
+ if(!state.shoe)return 0;
+ return clamp(Math.abs(state.shoe.x-state.shoe.startX)/200);
+}
+function smooth01(x){const v=clamp(x);return v*v*(3-2*v)}
+function tint(a,b,t){
+ const c=h=>[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];
+ const x=c(a),y=c(b);
+ return 'rgb('+x.map((v,i)=>Math.round(v+(y[i]-v)*t)).join(',')+')';
+}
+const DAWN={
+ stops:[0,.22,.48,.74,1],
+ top:['#071129','#182b51','#44517f','#7188ad','#78b9e7'],
+ mid:['#192d4c','#36436d','#8a709b','#dd9b9f','#b6ddf1'],
+ horizon:['#2a465d','#6a5775','#c5767a','#ffd0a0','#fce6ba']
+};
+function dawnColor(layer,d){
+ const st=DAWN.stops,colors=DAWN[layer];
+ let i=0;while(i<st.length-2&&d>st[i+1])i++;
+ return tint(colors[i],colors[i+1],smooth01((d-st[i])/(st[i+1]-st[i])));
+}
+function backdrop(t){
+ const ground=groundY(),d=dawnProgress();
+ const twilight=smooth01(d/.85),morning=smooth01((d-.28)/.72);
+ const sky=ctx.createLinearGradient(0,0,0,H);
+ sky.addColorStop(0,dawnColor('top',d));
+ sky.addColorStop(.54,dawnColor('mid',d));
+ sky.addColorStop(1,dawnColor('horizon',d));
+ ctx.fillStyle=sky;ctx.fillRect(0,0,W,H);
+ // Horizon warms across the whole flight rather than turning on suddenly.
+ const glow=ctx.createRadialGradient(W*.73,H*.72,0,W*.73,H*.72,Math.max(W,H)*.77);
+ glow.addColorStop(0,rgba(255,169,109,.43*twilight));
+ glow.addColorStop(.38,rgba(255,179,133,.17*twilight));
+ glow.addColorStop(1,'rgba(255,210,165,0)');
+ ctx.fillStyle=glow;ctx.fillRect(0,0,W,H);
+ // A single, well-defined crescent replaces the old overlapping circles.
+ if(d<.72){
+  const alpha=(1-smooth01(d/.72))*.85;
+  ctx.save();ctx.translate(W*.22,H*.20);
+  ctx.globalAlpha=alpha;ctx.shadowColor='#d8ebff';ctx.shadowBlur=13;
+  ctx.fillStyle='#f4f0dc';
+  // The two arcs meet exactly, so no extra moon-shaped fragments appear.
+  ctx.beginPath();
+  ctx.arc(0,0,20,-1.489397,0.728369,true);
+  ctx.arc(10,-4,18,1.293639,-2.054644,false);
+  ctx.closePath();ctx.fill();ctx.restore();
+ }
+ // Sun peeks above the horizon after twilight and rises as morning develops.
+ const sunlight=smooth01((d-.28)/.72);
+ if(sunlight>0){
+  const sx=W*.72,sy=H*(.82-.34*sunlight),r=15+12*sunlight;
+  const halo=ctx.createRadialGradient(sx,sy,1,sx,sy,r*6);
+  halo.addColorStop(0,rgba(255,245,193,.34*sunlight));
+  halo.addColorStop(1,'rgba(255,215,156,0)');
+  ctx.fillStyle=halo;ctx.fillRect(sx-r*6,sy-r*6,r*12,r*12);
+  ctx.fillStyle=rgba(255,243,197,.90*sunlight);
+  ctx.beginPath();ctx.arc(sx,sy,r,0,TAU);ctx.fill();
+ }
+ const starAlpha=(1-smooth01(d/.69));
+ if(starAlpha>.001)for(const st of stars){
+  const x=((st.x-state.cam*SCALE*.06)%W+W)%W,y=((st.y*(H/BASE_H)-state.camY*SCALE*.035)%(H*.73)+(H*.73))%(H*.73);
+  ctx.fillStyle=rgba(207,230,255,(.24+.22*Math.sin(t*.0014+st.phase))*starAlpha);
+  ctx.beginPath();ctx.arc(x,y,st.r,0,TAU);ctx.fill();
+ }
+ // Independent cloud drift and parallax remain in both night and morning.
+ for(let i=0;i<20;i++){
+  const drift=(i%2?1:-1)*state.simTime*(3.5+i%4*1.8);
+  const x=((i*247+41+drift-state.cam*SCALE*(.12+(i%4)*.058))%1600+1600)%1600-230;
+  const y=38+(i*137)%Math.max(230,H*.64)-state.camY*SCALE*(.07+(i%3)*.022);
+  cloud(x,y,.45+(i%4)*.22,(.14+(i%3)*.075)*(1+.7*d),d);
+ }
+ mountains(ground,1,tint('#243c55','#88a8b8',d),.009,143,.15,2);
+ mountains(ground,2,tint('#2b4a5c','#7399a1',d),.014,97,.30,1);
+ mountains(ground,3,tint('#28484e','#598c78',d),.023,45,.60,3);
+ if(ground>H+220)return;
+ ctx.fillStyle=tint('#183039','#456b55',d);
+ ctx.beginPath();ctx.moveTo(0,H+15);
+ for(let x=0;x<=W+6;x+=6){ctx.lineTo(x,ground+craterDepthAt(x))}
+ ctx.lineTo(W,H+15);ctx.closePath();ctx.fill();
+ if(state.crater){const c=state.crater,px=world(c.x,PH.h).x,r=c.width*SCALE;
+  ctx.beginPath();ctx.moveTo(px-r*1.25,ground+1);ctx.quadraticCurveTo(px-r,ground-7,px-r*.8,ground+4);ctx.lineTo(px+r*.8,ground+4);ctx.quadraticCurveTo(px+r,ground-7,px+r*1.25,ground+1);ctx.strokeStyle='#8d7354';ctx.lineWidth=4;ctx.stroke();
+  ctx.beginPath();ctx.ellipse(px,ground+c.depth*SCALE*.61,r*.83,c.depth*SCALE*.5,0,0,TAU);ctx.fillStyle='#0d2025b9';ctx.fill();
+  ctx.beginPath();ctx.moveTo(px-r,ground);for(let n=0;n<=26;n++){let x=px-r+2*r*n/26;ctx.lineTo(x,ground+craterDepthAt(x))}ctx.strokeStyle='#b18a67';ctx.lineWidth=4;ctx.stroke()}
+ ctx.strokeStyle=tint('#557b6b','#8aa885',d);ctx.lineWidth=3;ctx.beginPath();for(let x=0;x<=W+6;x+=6){const y=ground+craterDepthAt(x);x===0?ctx.moveTo(x,y):ctx.lineTo(x,y)}ctx.stroke();
+ for(let i=0;i<140;i++){const wx=(((i*83.1-state.cam*SCALE)% (W+140))+(W+140))%(W+140)-70,y=ground+18+((i*37)%130);
+  if(y>=0&&y<H){ctx.fillStyle=i%3===0?'#4e6b5a':'#2d4a46';ctx.fillRect(wx,y,2+(i%5),1+(i%2))}}
+ const origin=world(0,PH.h).x,minM=Math.floor((-20-origin)/SCALE/10)*10,maxM=Math.ceil((W+20-origin)/SCALE/10)*10;
+ for(let m=minM;m<=maxM;m+=2){let x=origin+m*SCALE;if(x<-10||x>W+10)continue;
+  const y=ground+craterDepthAt(x);line(x,y,x,y+(m%10===0?14:7),'#678b8d',m%10===0?2:1);
+ }
+}
+function drawVisitors(){
+ if(!state.visitors.length)return;
+ for(const v of state.visitors){
+  if(v.hit)continue;
+  const p=visitorPosition(v),q=world(p.x,p.y);
+  if(q.x< -110||q.x>W+110||q.y< -95||q.y>H+95)continue;
+  ctx.save();ctx.translate(q.x,q.y);
+  if(v.kind==='crow'){
+   // A small flapping silhouette; hitbox remains deliberately tiny.
+   const flap=Math.sin(v.age*18+v.phase),dir=-Math.sign(v.vx)||1;
+   ctx.scale(dir,1);ctx.fillStyle='#111c2b';ctx.strokeStyle='#101726';ctx.lineWidth=3;
+   ctx.beginPath();ctx.ellipse(0,0,11,5,0,0,TAU);ctx.fill();
+   ctx.beginPath();ctx.moveTo(-4,-1);ctx.quadraticCurveTo(-17,-13-9*flap,-27,-6-12*flap);
+   ctx.quadraticCurveTo(-16,1,-1,3);ctx.fill();
+   ctx.beginPath();ctx.moveTo(4,-1);ctx.quadraticCurveTo(18,-13-9*flap,28,-6-12*flap);
+   ctx.quadraticCurveTo(17,2,1,3);ctx.fill();
+   ctx.fillStyle='#eab86c';ctx.beginPath();ctx.moveTo(10,-2);ctx.lineTo(19,0);ctx.lineTo(10,2);ctx.fill();
+   ctx.fillStyle='#e1eff7';ctx.fillRect(7,-3,2.5,2.5);
+  }else{
+   const glow=.7+.3*Math.sin(state.simTime*7);
+   ctx.shadowColor='#79f9ec';ctx.shadowBlur=16*glow;
+   ctx.fillStyle='#a2c3ff';ctx.beginPath();ctx.ellipse(0,-5,13,11,0,Math.PI,TAU);ctx.fill();
+   ctx.fillStyle='#435a8a';ctx.beginPath();ctx.ellipse(0,2,25,8,0,0,TAU);ctx.fill();
+   ctx.fillStyle='#bceff7';ctx.beginPath();ctx.ellipse(0,0,25,5,0,0,TAU);ctx.fill();
+   for(let i=-1;i<=1;i++){ctx.fillStyle='#f7da8a';ctx.beginPath();ctx.arc(i*13,2,2.7,0,TAU);ctx.fill()}
+  }
+  ctx.restore();
+ }
+ for(const fx of state.bonusEffects){
+  const q=world(fx.x,fx.y),alpha=clamp(1-fx.age/1.35);
+  ctx.save();ctx.globalAlpha=alpha;ctx.textAlign='center';ctx.font='900 23px system-ui,sans-serif';
+  ctx.shadowColor='#020b18';ctx.shadowBlur=8;ctx.fillStyle='#ffe8a3';
+  ctx.fillText('+'+fmtNum(fx.points)+' P',q.x,q.y-32-fx.age*30);ctx.restore();
+ }
+}
+function windStreaks(){if(state.phase!=='flying')return;const s=state.shoe,speed=Math.hypot(s.vx,s.vy),strength=Math.min(1,Math.max(0,(speed-8)/32));if(strength<=0)return;
+ ctx.save();ctx.lineCap='round';for(let i=0;i<38;i++){let u=random01(i+49),v=random01(i+202),phase=(state.simTime*(.22+speed*.011)*(i%3+1)*.3+i*.13)%1;
+ let x=((u*W-phase*W)% (W+80)+W+80)%(W+80),y=v*H;
+ let len=(18+random01(i+405)*100)*strength,dir=Math.sign(s.vx)||1;
+ line(x,y,x-dir*len,y-(s.vy/Math.max(3,Math.abs(s.vx)))*dir*len*.26,rgba(191,237,255,.09+.24*strength),1+(i%3)*.38)}ctx.restore();
+}
+function dustEffect(){if(!state.dust.length)return;for(const p of state.dust){const pos=world(p.x,p.y),fade=Math.max(0,1-p.age/p.ttl);ctx.globalAlpha=fade*.85;ctx.beginPath();ctx.arc(pos.x,pos.y,p.size*(1+p.age*.8),0,TAU);ctx.fillStyle=p.color;ctx.fill()}ctx.globalAlpha=1}
+function swingFrame(){let p=world(0,0),gx=world(0,PH.h).x,GROUND_Y=groundY();
+ const left=gx-157,right=gx+157;
+ line(gx-72,p.y+13,left,GROUND_Y-2,'#294456',14);line(gx+72,p.y+13,right,GROUND_Y-2,'#294456',14);
+ line(gx-72,p.y+13,left,GROUND_Y-2,'#52768b',4);line(gx+72,p.y+13,right,GROUND_Y-2,'#52768b',4);
+ line(gx-99,p.y+3,gx+99,p.y+3,'#19283f',15);line(gx-99,p.y,gx+99,p.y,'#a4b8c6',5);
+ roundRect(gx-113,p.y-5,226,12,5,'#506b83','#152740',1.5);
+ ctx.beginPath();ctx.arc(p.x,p.y,10,0,TAU);ctx.fillStyle='#9cb4c9';ctx.fill();ctx.beginPath();ctx.arc(p.x,p.y,4,0,TAU);ctx.fillStyle='#243d59';ctx.fill();
+}
+function sneaker(x,y,angle,scale=1){ctx.save();ctx.translate(x,y);ctx.rotate(angle);ctx.scale(scale,scale);
+ // Shoe pointing toward the right; orange upper, light sole, white laces.
+ ctx.shadowColor='#ffab6f7d';ctx.shadowBlur=10;ctx.beginPath();ctx.moveTo(-15,-8);ctx.quadraticCurveTo(-8,-16,1,-10);ctx.lineTo(10,-5);ctx.quadraticCurveTo(23,-5,22,5);ctx.quadraticCurveTo(7,12,-12,9);ctx.quadraticCurveTo(-18,4,-15,-8);ctx.closePath();ctx.fillStyle='#ff9457';ctx.fill();ctx.shadowBlur=0;
+ ctx.strokeStyle='#ffe9da';ctx.lineWidth=2;line(-4,-6,-.5,-1,'#ffeddf',1.8);line(1,-6,4,-1,'#ffeddf',1.8);line(6,-4,9,0,'#ffeddf',1.8);
+ ctx.beginPath();ctx.moveTo(-18,7);ctx.quadraticCurveTo(0,13,22,7);ctx.quadraticCurveTo(23,12,18,14);ctx.lineTo(-14,14);ctx.quadraticCurveTo(-20,12,-18,7);ctx.fillStyle='#f2f4ee';ctx.fill();ctx.restore();}
+function rider(){const riderScale=clamp(3.45/(PH.l1+PH.l2),.49,1.05);const a=state.q[0],b=state.q[1],p=world(0,0),mid=world(PH.l1*Math.sin(a),PH.l1*Math.cos(a)),seat=seatPoint(),chair=world(seat.x,seat.y),shoe=endPoint(),foot=world(shoe.x,shoe.y);
+ // The two physically simulated chain links are pivot → midpoint → seat.
+ // Parallel strands are decorative; both ends of each segment remain fixed-distance.
+ const rope=(p1,p2,angle,half=5,color='#add3e2')=>{const ox=Math.cos(angle)*half,oy=-Math.sin(angle)*half;
+  for(const s of [-1,1]){line(p1.x+s*ox,p1.y+s*oy,p2.x+s*ox,p2.y+s*oy,'#0a2236',7);line(p1.x+s*ox,p1.y+s*oy,p2.x+s*ox,p2.y+s*oy,color,2.8)}};
+ rope(p,mid,a,5*riderScale,'#add3e2');rope(mid,chair,b,5*riderScale,'#6cf6d2');
+ ctx.beginPath();ctx.arc(mid.x,mid.y,11*riderScale,0,TAU);ctx.fillStyle='#ebbb81';ctx.fill();ctx.strokeStyle='#344d63';ctx.lineWidth=3;ctx.stroke();
+ ctx.beginPath();ctx.arc(mid.x,mid.y,3.5*riderScale,0,TAU);ctx.fillStyle='#243b50';ctx.fill();
+ // Seat and rider are attached to the second pendulum's endpoint, not the hinge.
+ ctx.save();ctx.translate(chair.x,chair.y);ctx.scale(riderScale,riderScale);
+ roundRect(-28,-6,56,13,4,'#ffad69','#6b432f',2);
+ line(-7,-7,-11,-39,'#62d9dd',16);line(-8,-9,-12,-38,'#a0e9ea',5);
+ ctx.beginPath();ctx.arc(-14,-55,17,0,TAU);ctx.fillStyle='#f2c6a4';ctx.fill();
+ ctx.beginPath();ctx.arc(-14,-59,17,Math.PI,TAU);ctx.fillStyle='#24334a';ctx.fill();
+ ctx.fillStyle='#24334a';ctx.beginPath();ctx.arc(-7,-54,2,0,TAU);ctx.fill();
+ ctx.restore();
+ // Legs extend beyond the seat; they are not an additional simulated pendulum.
+ line(chair.x-5*riderScale,chair.y+1*riderScale,foot.x-5*riderScale,foot.y,'#12465f',11*riderScale);line(chair.x-5*riderScale,chair.y+1*riderScale,foot.x-5*riderScale,foot.y,'#68deda',5*riderScale);
+ ctx.beginPath();ctx.arc(chair.x,chair.y,6*riderScale,0,TAU);ctx.fillStyle='#e6c5a2';ctx.fill();
+ if(state.phase==='swing')sneaker(foot.x,foot.y,Math.atan2(-Math.sin(b),Math.cos(b))*.35,1.12*riderScale);
+ else{ctx.beginPath();ctx.arc(foot.x,foot.y,7*riderScale,0,TAU);ctx.fillStyle='#e9edf5';ctx.fill()}
+}
+function seatTrace(){const v=state.seatTrail;if(v.length<2)return;
+ for(let i=1;i<v.length;i++){const age=state.simTime-v[i].t;if(age>4.0)continue;
+ const a=world(v[i-1].x,v[i-1].y),b=world(v[i].x,v[i].y);
+ ctx.globalAlpha=.25*(1-age/4);line(a.x,a.y,b.x,b.y,'#58edec',2.1)}ctx.globalAlpha=1
+}
+function aimArrow(){if(state.phase!=='swing'||state.kick!==MAX)return;
+ const p=launchState(),a=world(p.x,p.y),b=world(p.x+p.nx*.68,p.y+p.ny*.68),ang=Math.atan2(b.y-a.y,b.x-a.x);
+ line(a.x,a.y,b.x,b.y,'#fff2a0',4);
+ for(const d of [-1,1])line(b.x,b.y,b.x-12*Math.cos(ang+d*.52),b.y-12*Math.sin(ang+d*.52),'#fff2a0',3);
+}
+function throwTrail(){if(!state.shoe)return;const GROUND_Y=groundY();
+ let tr=state.trail;
+ if(tr.length>1){ctx.beginPath();for(let i=0;i<tr.length;i++){const p=world(tr[i].x,tr[i].y);i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y)}ctx.setLineDash([5,7]);ctx.lineWidth=2;ctx.strokeStyle='#ffc189a0';ctx.stroke();ctx.setLineDash([])}
+ const p=state.shoe,q=world(p.x,p.y),prev=state.phase==='landed'?Math.atan2(p.vy,p.vx):Math.atan2(p.vy,p.vx);sneaker(q.x,state.phase==='landed'?q.y+craterDepthAt(q.x)*.47:q.y,prev*.55,1.15);
+ if(state.phase==='landed'){ctx.save();ctx.strokeStyle='#ffe0b4';ctx.lineWidth=2;for(let i=0;i<9;i++){let r=i*Math.PI/4.5;line(q.x+Math.cos(r)*19,q.y-9+Math.sin(r)*7,q.x+Math.cos(r)*28,q.y-12+Math.sin(r)*13,'#ffa45e83',2)}ctx.restore()}
+ let from=world(p.startX,PH.h),to=world(p.x,PH.h);if(state.phase==='landed'&&from.x>=0&&from.x<=W&&to.x>=0&&to.x<=W){line(from.x,GROUND_Y-9,to.x,GROUND_Y-9,'#ffa45e75',3)}
+}
+function render(time){resize();ctx.setTransform(canvas.width/W,0,0,canvas.height/H,0,0);ctx.clearRect(0,0,W,H);ctx.save();if(state.shake){ctx.translate((Math.random()-.5)*state.shake,(Math.random()-.5)*state.shake)}backdrop(time);windStreaks();drawVisitors();if(state.phase==='swing'){swingFrame();seatTrace();rider();aimArrow()}else if(state.phase==='flying' || state.phase==='landed'){if(Math.abs(state.cam)<10&&Math.abs(state.camY)<9){swingFrame();seatTrace();rider()}}throwTrail();dustEffect();ctx.restore()}
+function tick(ts){if(!lastFrame)lastFrame=ts;let dt=Math.min((ts-lastFrame)/1000,.05);lastFrame=ts;now=ts;
+ if(!shopOpen){accumulator+=dt;let n=0;while(accumulator>=1/240&&n<24){step(1/240);accumulator-=1/240;n++}if(n===24)accumulator=0;}
+ else accumulator=0;
+ render(ts);requestAnimationFrame(tick)}
+$('pump').addEventListener('click',pump);
+$('openShop').addEventListener('click',showShop);
+$('throw').addEventListener('click',shoot);
+$('again').addEventListener('click',reset);
+$('visitShop').addEventListener('click',showShop);
+$('startGame').addEventListener('click',startRound);
+$('lengthInShop').addEventListener('input',e=>setSwingLength(e.target.value));
+$('eraseSave').addEventListener('click',()=>{
+ if(!window.confirm('すべての強化、ポイント、記録を削除しますか？'))return;
+ progress=blankSave();saveProgress();applyUpgrades();renderShop();syncLengthControls();
+});
+window.addEventListener('keydown',e=>{
+ if(e.repeat)return;
+ if(e.code==='Space'){e.preventDefault();pump()}
+ else if(e.code==='Enter'&&state.phase==='swing'){e.preventDefault();shoot()}
+ else if(e.code==='KeyR'&&!shopOpen){reset()}
+});
+window.addEventListener('resize',()=>render(performance.now()));
+applyUpgrades();syncLengthControls();reset();updateHud();saveProgress();requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>
